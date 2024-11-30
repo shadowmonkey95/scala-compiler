@@ -1,0 +1,23 @@
+# Ignore build tool directories
+.bsp/
+.scala-build/
+
+# Ignore Coursier files
+cs
+
+# Ignore Scala Metals files
+.metals/
+project/target/
+*.semanticdb
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# IntelliJ IDEA and VSCode configuration files (optional)
+.idea/
+.vscode/
+
+# OS-specific files
+.DS_Store  # macOS
+Thumbs.db  # Windows
