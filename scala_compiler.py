@@ -16,18 +16,26 @@ PRINT_AST=False
 PRINT_ENV=False
 
 TokenType = Enum('TokenType',
-                 [   # Tokens that are unambiguous single characters
-                     'SEMICOLON', 'LEFT_PAREN', 'RIGHT_PAREN', 'LEFT_BRACE', 'RIGHT_BRACE',
-                     'PLUS', 'MINUS', 'STAR', 'SLASH', 'COMMA',
+                 [   # Tokens that are unambiguous single characters - WILDCARD means underscore.
+                     'SEMICOLON', 'LEFT_PAREN', 'RIGHT_PAREN', 'LEFT_BRACE', 'RIGHT_BRACE', 'LEFT_BRACKET', 'RIGHT_BRACKET',
+                     'PLUS', 'MINUS', 'STAR', 'SLASH', 'COMMA', 'COLON', 'WILDCARD',
                      # Tokens that require 1-character lookahead
                      'EQUAL', 'EQUAL_EQUAL',
                      'BANG', 'BANG_EQUAL',
                      'LESS', 'LESS_EQUAL',
                      'GREATER', 'GREATER_EQUAL',
-                     # keywords
-                     'FUN', 'IF', 'ELSE', 'WHILE', 'VAR', 'PRINT', 'TRUE', 'FALSE', 'RETURN',
+                     'ARROW',
+                     # keywords  - var (mutable VAR) / val (immutable VAR)
+                     'DEF', 'IF', 'ELSE', 'WHILE', 'VAR', 'PRINT', 'TRUE', 'FALSE', 'RETURN',
+                     'OBJECT', 'VAL', 'PRINTLN', 'CASE', 'MATCH',
+                     #TYPE NAME - unit means void in C ('STRING', 'INT', 'FLOAT', 'DOUBLE', 'BOOLEAN', 'UNIT', 'ARRAY')
+                     'TYPE_NAME',
                      # identifiers and literals
                      'IDENTIFIER', 'STRING', 'NUMBER',
+                     # interpolator
+                     'S_INTERPOLATOR', 'F_INTERPOLATOR','RAW_INTERPOLATOR',
+                     # annotation
+                     'ANNOTATION',
                  ])
     
 @dataclass
@@ -52,6 +60,7 @@ for line_num, line in enumerate(code.splitlines()):
                 return False
             return line[current+1] == c
 
+
         # the next character to look at is line[current]
         next_char = line[current]
         # First look for the unambiguous 1-character tokens
@@ -59,6 +68,10 @@ for line_num, line in enumerate(code.splitlines()):
         #    'PLUS', 'MINUS', 'STAR', 'SLASH',
         if next_char == ';':
             token = Token(TokenType.SEMICOLON, ';', line_num)
+            tokens.append(token)
+            current += 1
+        elif next_char == '_':
+            token = Token(TokenType.WILDCARD, '_', line_num)
             tokens.append(token)
             current += 1
         elif next_char == '(':
@@ -75,6 +88,18 @@ for line_num, line in enumerate(code.splitlines()):
             current += 1
         elif next_char == '}':
             token = Token(TokenType.RIGHT_BRACE, '}', line_num)
+            tokens.append(token)
+            current += 1
+        elif next_char == '[':
+            token = Token(TokenType.LEFT_BRACKET, '[', line_num)
+            tokens.append(token)
+            current += 1
+        elif next_char == ']':
+            token = Token(TokenType.RIGHT_BRACKET, ']', line_num)
+            tokens.append(token)
+            current += 1
+        elif next_char == ':':
+            token = Token(TokenType.COLON, ':', line_num)
             tokens.append(token)
             current += 1
         elif next_char == '+':
@@ -107,6 +132,10 @@ for line_num, line in enumerate(code.splitlines()):
         elif next_char == '=':
             if peek('='):
                 token = Token(TokenType.EQUAL_EQUAL, '==', line_num)
+                tokens.append(token)
+                current += 2
+            elif peek('>'):
+                token = Token(TokenType.ARROW, '=>', line_num)
                 tokens.append(token)
                 current += 2
             else:
@@ -155,6 +184,66 @@ for line_num, line in enumerate(code.splitlines()):
                     current += 1
             if not closed_string:
                 raise Exception(f"Unclosed string literal on line {line_num}")
+        elif next_char == 's':
+            if peek('"'):
+                start = current
+                current += 2
+                closed_string = False
+                while not isPastEndOfLine() and not closed_string:
+                    if line[current] == '"':
+                        closed_string = True
+                        current += 1
+                        token = Token(TokenType.S_INTERPOLATOR, line[start:current], line_num)
+                        tokens.append(token)
+                    else:
+                        current += 1
+                if not closed_string:
+                    raise Exception(f"Unclosed string literal on line {line_num}")
+        elif next_char == 'f':
+            if peek('"'):
+                start = current
+                current += 2
+                closed_string = False
+                while not isPastEndOfLine() and not closed_string:
+                    if line[current] == '"':
+                        closed_string = True
+                        current += 1
+                        token = Token(TokenType.S_INTERPOLATOR, line[start:current], line_num)
+                        tokens.append(token)
+                    else:
+                        current += 1
+                if not closed_string:
+                    raise Exception(f"Unclosed string literal on line {line_num}")
+        elif next_char == 'r':
+            if line[current+1] =='a' and line[current+2] == 'w' and line[current+3] == '"':
+                start = current
+                current += 4
+                closed_string = False
+                while not isPastEndOfLine() and not closed_string:
+                    if line[current] == '"':
+                        closed_string = True
+                        current += 1
+                        token = Token(TokenType.RAW_INTERPOLATOR, line[start:current], line_num)
+                        tokens.append(token)
+                    else:
+                        current += 1
+                if not closed_string:
+                    raise Exception(f"Unclosed string literal on line {line_num}")
+        # ANNOTATION
+        elif next_char == '@':
+            start = current
+            current += 1
+            closed_annotation = False
+            while not isPastEndOfLine() and not closed_annotation:
+                if line[current] == ' ':
+                    closed_annotation = True
+                    current += 1
+                    token = Token(TokenType.ANNOTATION, line[start:current], line_num)
+                    tokens.append(token)
+                else:
+                    current += 1
+            if not closed_annotation:
+                raise Exception(f"Unclosed annotation on line {line_num}")
         # Look for numeric literals
         elif next_char.isdigit():
             start = current
@@ -174,8 +263,8 @@ for line_num, line in enumerate(code.splitlines()):
                 current += 1
             # first check if it's a keyword: 'IF', 'ELSE', 'VAR', 'PRINT'
             lexeme = line[start:current]
-            if lexeme == "fun":
-                token = Token(TokenType.FUN, lexeme, line_num)
+            if lexeme == "def":
+                token = Token(TokenType.DEF, lexeme, line_num)
             elif lexeme == "if":
                 token = Token(TokenType.IF, lexeme, line_num)
             elif lexeme == "else":
@@ -186,12 +275,29 @@ for line_num, line in enumerate(code.splitlines()):
                 token = Token(TokenType.VAR, lexeme, line_num)
             elif lexeme == "print":
                 token = Token(TokenType.PRINT, lexeme, line_num)
+            elif lexeme == "val":
+                token = Token(TokenType.VAL, lexeme, line_num)
+            elif lexeme == "println":
+                token = Token(TokenType.PRINTLN,lexeme, line_num)
             elif lexeme == "true":
                 token = Token(TokenType.TRUE, lexeme, line_num)
             elif lexeme == "false":
                 token = Token(TokenType.FALSE, lexeme, line_num)
             elif lexeme == "return":
                 token = Token(TokenType.RETURN, lexeme, line_num)
+            elif lexeme == "object":
+                token = Token(TokenType.OBJECT, lexeme, line_num)
+            elif lexeme == "case":
+                token = Token(TokenType.CASE, lexeme, line_num)
+            elif lexeme == "match":
+                token = Token(TokenType.MATCH, lexeme, line_num)
+            ##Type name
+            elif lexeme == "String" or lexeme == "Short" or lexeme == "Int" or \
+                    lexeme == "Long" or lexeme == "Float" or lexeme == "Double" or \
+                    lexeme == "Char" or lexeme == "Boolean" or lexeme == "Unit" or \
+                    lexeme == "Array" or lexeme == "List" or lexeme == "trait" or \
+                    lexeme == "Any":
+                token = Token(TokenType.TYPE_NAME, lexeme, line_num)
             else: # otherwise it's an identifier
                 token = Token(TokenType.IDENTIFIER, lexeme, line_num)
             tokens.append(token)
