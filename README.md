@@ -51,7 +51,7 @@ $ scala HelloWorld
 # Scala Code Parser
 
 This project implements a parser for Scala code. The parser takes a list of tokens and processes them according to Scala's syntax to produce an Abstract Syntax Tree (AST). This parser is capable of handling various Scala constructs such as function definitions, variable declarations, string interpolations, pattern matching, collections, and more.
----
+
 ## Completed Tasks
 # 1. Main function with annotation:
 ```@main def helloWorld(): Unit = {
