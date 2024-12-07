@@ -1,6 +1,8 @@
 from enum import Enum
 from dataclasses import dataclass
 
+from IPython.core.magic_arguments import argument
+
 code = """
 object ScalaExample {
   def main(args: Array[String]): Unit = {
@@ -10,6 +12,7 @@ object ScalaExample {
     println(s"Hello, $name! You are $age years old.")
     }
 }
+
 """
 
 PRINT_AST=False
@@ -33,8 +36,6 @@ TokenType = Enum('TokenType',
                      'TYPE_NAME',
                      # identifiers and literals
                      'IDENTIFIER', 'STRING', 'NUMBER',
-                     #method
-                     'MAP',
                      # interpolator
                      'S_INTERPOLATOR', 'F_INTERPOLATOR','RAW_INTERPOLATOR',
                      # annotation
@@ -231,15 +232,9 @@ for line_num, line in enumerate(code.splitlines()):
                     raise Exception(f"Unclosed string literal on line {line_num}")
         # recall method
         elif next_char == '.':
-            if line[current+1] == 'm' and line[current+2] == 'a' and line[current+3] == 'p':
-                start = current
-                current += 4
-                token = Token(TokenType.MAP, ".map", line_num)
-                tokens.append(token)
-            else:
-                current += 1
-                token = Token(TokenType.DOT, ".",line_num)
-                tokens.append(token)
+            current += 1
+            token = Token(TokenType.DOT, ".",line_num)
+            tokens.append(token)
         # ANNOTATION
         elif next_char == '@':
             start = current
@@ -335,7 +330,6 @@ print(tokens)
 # Input: tokens (list of tokens, each of class Token)
 # Output: list of ASTs (each of one of the dataclasses below)
 # ======
-
 
 @dataclass
 class decimalNumeral:
@@ -434,7 +428,69 @@ class stringInterpolationExpr:
     interpolator: str
     parts: list
 
+@dataclass
+class memberAccessExpr:
+    receiver : object # The object being accessed (e.g., 'dog')
+    member : token    # The member being accessed (e.g., 'sound')
+
+@dataclass
+class foreachExpr:
+    receiver : object #the object of collection on which a method is being called.
+    operator : object #the action is performed on each element of the collection.
+
+@dataclass
+class matchCase:
+    pattern: object # The condition you're matching against (e.g., a value, type, structure).
+    result: object # What happens if the pattern matches (could be a value, expression, or action).
+
+@dataclass
+class matchExpr:
+    expr: object
+    cases: list
+
+@dataclass
+class wildcardPattern:
+    value : object
+
+@dataclass
+class importStmt:
+    path: str
+
+@dataclass
+class className:
+    name: str
+
+@dataclass
+class traitDeclStmt:
+    name: str
+    body: object
+
+@dataclass
+class classDeclStmt:
+    name: str
+    params: list
+    superClass : token
+    traits: list
+    body: object
+
+@dataclass
+class defCallExpr:
+    name: str
+    arguments: list
+
+@dataclass
+class curriedDefExpr:
+    name : str
+    arguments: list
+    isCurried: bool
+
+@dataclass
+class annotationExpr:
+    annot_name : str
+    body : object
+
 currentToken = 0
+
 
 # some convenience functions for looking at and/or consuming the next token
 def nextToken():
@@ -484,40 +540,119 @@ def parseStatement():
         return parsePrintStmt()
     elif nextTokenType() == TokenType.PRINTLN:
         return parsePrintlnStmt()
-    elif nextTokenType() == TokenType.IDENTIFIER and nextNextToken() == TokenType.LEFT_PAREN:
+    elif nextTokenType() == TokenType.IDENTIFIER and nextNextTokenType() == TokenType.EQUAL:
+        return parseAssignStmt()
+    elif nextTokenType() == TokenType.IDENTIFIER and nextNextTokenType() == TokenType.LEFT_PAREN:
         return parseDefCall()
     elif nextTokenType() == TokenType.LEFT_BRACE:
         return parseBlock()
     elif nextTokenType() == TokenType.OBJECT:
-        return parseobjectStmt()
+        return parseObjectStmt()
     elif nextTokenType() == TokenType.VAR:
         return parseVarDeclStmt()
     elif nextTokenType() == TokenType.VAL:
         return parseValDeclStmt()
+    elif nextTokenType() == TokenType.CASE:
+        return parseCaseStmt()
+    elif nextTokenType() == TokenType.IMPORT:
+        return parseImportStmt()
+    elif nextTokenType() == TokenType.TRAIT:
+        return parseTraitStmt()
+    elif nextTokenType() == TokenType.CLASS:
+        return parseClassStmt()
+    elif nextTokenType() == TokenType.ANNOTATION:
+        return parseAnnotationStmt()
     elif nextTokenType() == None:
         raise Exception("Unexpected end of file")
-
     return parseExpressionStmt()
-    '''
-    elif nextTokenType() == TokenType.VAR:
-        return parseVarDeclStmt()
-    elif nextTokenType() == TokenType.VAL:
-        return parseValDeclStmt()
-    elif nextTokenType() == TokenType.IDENTIFIER and nextNextToken() == TokenType.EQUAL:
-        # TODO: will need to disambiguate from function calls like test(); that also start with IDENTIFIER
-        return parseAssignStmt()
-    
-    elif nextTokenType() == TokenType.IF:
-        return parseIfStmt()
-    elif nextTokenType() == TokenType.WHILE:
-        return parseWhileStmt()
-    elif nextTokenType() == TokenType.RETURN:
-        return parseReturnStmt()
-    elif nextTokenType() == None:
-        raise Exception("Unexpected end of file")
 
-    return parseExpressionStmt()
-    '''
+def parseAnnotationStmt():
+    # grammar
+    ano_name = nextToken().lexeme
+    expect(TokenType.ANNOTATION)
+    body = parseStatement()
+    return annotationExpr(ano_name, body)
+
+def parseAssignStmt():
+    # grammar
+    # assign structure identifier equal value
+    varName = nextToken()
+    expect(TokenType.IDENTIFIER)
+    expect(TokenType.EQUAL)
+    expr = parseExpression()
+    return assignStmt(varName, expr)
+
+def parseClassStmt():
+    # grammar
+    # class structure: class name extends trait_name with trait_name {...}
+    # variable
+    params = []
+    supperClass = None
+    traits = []
+    body = None
+
+    expect(TokenType.CLASS)
+    name = nextToken().lexeme
+    expect(TokenType.IDENTIFIER)
+    if nextTokenType() == TokenType.EXTENDS:
+        expect(TokenType.EXTENDS)
+        supperClass = nextToken()
+        expect(TokenType.IDENTIFIER)
+    while nextTokenType() == TokenType.WITH:
+        expect(TokenType.WITH)
+        trait = nextToken()
+        expect(TokenType.IDENTIFIER)
+        traits.append(trait)
+    body = parseBlock()
+    return classDeclStmt(name, params, supperClass, traits, body)
+
+def parseTraitStmt():
+    # grammar
+    # trait structure : trait name {...}
+    expect(TokenType.TRAIT)
+    name = nextToken().lexeme
+    expect(TokenType.IDENTIFIER)
+    body = parseBlock()
+    return traitDeclStmt(name, body)
+
+def parseImportStmt():
+    # grammar
+    # import path
+    expect(TokenType.IMPORT)
+    path = ""
+    path = nextToken().lexeme
+    expect(TokenType.IDENTIFIER)
+    path += nextToken().lexeme
+    expect(TokenType.DOT)
+    path += nextToken().lexeme
+    expect(TokenType.IDENTIFIER)
+    path += nextToken().lexeme
+    expect(TokenType.DOT)
+    path += nextToken().lexeme
+    expect(TokenType.IDENTIFIER)
+
+    return importStmt(path)
+
+def parseCaseStmt():
+    # grammar
+    # case: case number => value
+    expr = valRefExpr(tokens[currentToken-3].lexeme)
+    cases = []
+    while nextTokenType() == TokenType.CASE:
+        consume()
+        pattern = None
+        if nextTokenType() == TokenType.NUMBER:
+            pattern = literalExpr(nextToken().lexeme)
+            expect(TokenType.NUMBER)
+        else:
+            pattern = wildcardPattern(nextToken().lexeme)
+            expect(TokenType.WILDCARD)
+        expect(TokenType.ARROW)
+        result = literalExpr(nextToken().lexeme)
+        consume()
+        case = matchCase(pattern, result)
+        cases.append(case)
+    return matchExpr(expr, cases)
 
 def parseValDeclStmt():
     # grammar
@@ -542,16 +677,18 @@ def parseVarDeclStmt():
     expect(TokenType.VAR)
     name = nextToken()
     expect(TokenType.IDENTIFIER)
-    expect(TokenType.COLON)
-    type_name = nextToken()
-    expect(TokenType.TYPE_NAME)
+    type_name = None
+    if nextTokenType() == TokenType.COLON:
+        expect(TokenType.COLON)
+        type_name = nextToken()
+        expect(TokenType.TYPE_NAME)
     expr = None
     if nextTokenType() == TokenType.EQUAL:
         expect(TokenType.EQUAL)
         expr = parseExpression()
     return varDeclStmt(name, type_name, expr)
 
-def parseobjectStmt():
+def parseObjectStmt():
     # grammar
     # objectStmt: OBJECT expression
     expect(TokenType.OBJECT)
@@ -661,43 +798,76 @@ def parseDefDeclStmt():
     # grammar
     # defDecl: DEF IDENTIFIER (LEFT_BRACKET TYPE_NAME RIGHT_BRACKET)-optional
     # LEFT_PAREN (PARAMS PARAMTYPE) RIGHT_PAREN COLON RETURNTYPE EQUAL LEFT_BRACE BODY RIGHT_BRACE
+    # variables
+    arguments = []
+    generic_type = None
+    returnType = None
+    body = None
+
+    # statements
     expect(TokenType.DEF)
     defName = nextToken()
     expect(TokenType.IDENTIFIER)
-    generic_type = None
+
     if nextTokenType() == TokenType.LEFT_BRACKET:
         expect(TokenType.LEFT_BRACKET)
         generic_type = nextToken()
         expect(TokenType.TYPE_NAME)
         expect(TokenType.RIGHT_BRACKET)
-    expect(TokenType.LEFT_PAREN)
-    arguments = []
-    # def example(a : Int, b: Int)
-    while nextTokenType() == TokenType.IDENTIFIER:
-        if len(arguments) > 0:
-            expect(TokenType.COMMA)
-        nextArgName = nextToken().lexeme
-        expect(TokenType.IDENTIFIER)
+
+    if nextTokenType() == TokenType.LEFT_PAREN:
+        while nextTokenType() == TokenType.LEFT_PAREN:
+            expect(TokenType.LEFT_PAREN)
+            arguments = []
+            # def example(a : Int, b: Int)
+            while nextTokenType() == TokenType.IDENTIFIER:
+                if len(arguments) > 0:
+                    expect(TokenType.COMMA)
+                nextArgName = nextToken().lexeme
+                expect(TokenType.IDENTIFIER)
+                expect(TokenType.COLON)
+                nextArgType = nextToken().lexeme
+                expect(TokenType.TYPE_NAME)
+                nextArgType2 = None
+                if nextTokenType() == TokenType.LEFT_BRACKET:
+                    expect(TokenType.LEFT_BRACKET)
+                    nextArgType2 = nextToken().lexeme
+                    expect(TokenType.TYPE_NAME)
+                    expect(TokenType.RIGHT_BRACKET)
+                if nextArgType2 is not None:
+                    arguments.append((nextArgName, (nextArgType, nextArgType2)))
+                else:
+                    arguments.append((nextArgName, nextArgType))
+            expect(TokenType.RIGHT_PAREN)
         expect(TokenType.COLON)
-        nextArgType = nextToken().lexeme
+        returnType = nextToken()
         expect(TokenType.TYPE_NAME)
-        nextArgType2 = None
-        if nextTokenType() == TokenType.LEFT_BRACKET:
-            expect(TokenType.LEFT_BRACKET)
-            nextArgType2 = nextToken().lexeme
-            expect(TokenType.TYPE_NAME)
-            expect(TokenType.RIGHT_BRACKET)
-        if nextArgType2 is not None:
-            arguments.append((nextArgName, (nextArgType, nextArgType2)))
-        else:
-            arguments.append((nextArgName, nextArgType))
-    expect(TokenType.RIGHT_PAREN)
-    expect(TokenType.COLON)
-    returnType = nextToken()
-    expect(TokenType.TYPE_NAME)
-    expect(TokenType.EQUAL)
-    body = parseBlock()
+        if nextTokenType() == TokenType.EQUAL:
+            expect(TokenType.EQUAL)
+            if nextTokenType() == TokenType.IDENTIFIER and nextNextTokenType() == TokenType.MATCH:
+                expect(TokenType.IDENTIFIER)
+                expect(TokenType.MATCH)
+                body = parseBlock()
+            elif nextTokenType() == TokenType.IDENTIFIER and (nextNextTokenType() == TokenType.PLUS or nextNextTokenType() == TokenType.MINUS or nextNextTokenType() == TokenType.STAR or nextNextTokenType() == TokenType.SLASH):
+                a = nextToken().lexeme
+                expect(TokenType.IDENTIFIER)
+                op = nextToken()
+                consume()
+                b = nextToken().lexeme
+                expect(TokenType.IDENTIFIER)
+                body = binaryExpr(op, a, b)
+            else:
+                body =  parseBlock()
+    elif nextTokenType() == TokenType.COLON:
+        expect(TokenType.COLON)
+        returnType = nextToken()
+        expect(TokenType.TYPE_NAME)
+        if nextTokenType() == TokenType.EQUAL:
+            expect(TokenType.EQUAL)
+            body = literalExpr(nextToken().lexeme)
+
     return defDeclStmt(defName, generic_type, arguments, returnType, body)
+
 
 def parseBlock():
     #grammar
@@ -716,12 +886,60 @@ def parsePrimary():
     if nextTokenType() == TokenType.IDENTIFIER:
         varName = nextToken().lexeme
         consume()
-        return varRefExpr(varName)
+        if nextTokenType() == TokenType.DOT:
+            expect(TokenType.DOT)
+            if nextTokenType() == TokenType.IDENTIFIER:
+                member = nextToken()
+                expect(TokenType.IDENTIFIER)
+                return memberAccessExpr(varName, member)
+            elif nextTokenType() == TokenType.FOREACH:
+                arguments = []
+                expect(TokenType.FOREACH)
+                expect(TokenType.LEFT_PAREN)
+                def_name = nextToken().lexeme
+                consume()
+                if nextTokenType() == TokenType.LEFT_PAREN:
+                    while nextTokenType() != TokenType.RIGHT_PAREN:
+                        if len(arguments) > 0:
+                            expect(TokenType.COMMA)
+                        argument = nextToken().lexeme
+                        arguments.append(literalExpr(argument))
+                        expect(TokenType.IDENTIFIER)
+                    expect(TokenType.RIGHT_PAREN)
+                expect(TokenType.RIGHT_PAREN)
+                return foreachExpr(varRefExpr(varName), defCallExpr(def_name, arguments))
+            else:
+                raise SyntaxError("The parser expected an IDENTIFIER token for a valid token in the access expression but found {nextTokenType()} ({nextToken().lexeme}). Please verify the syntax.")
+        elif nextTokenType() == TokenType.LEFT_PAREN:
+            expect(TokenType.LEFT_PAREN)
+            arguments = []
+            while nextTokenType() != TokenType.RIGHT_PAREN:
+                if len(arguments) > 0:
+                    expect(TokenType.COMMA)
+                argument = nextToken().lexeme
+                arguments.append(literalExpr(argument))
+                consume()
+                if nextTokenType() == TokenType.RIGHT_PAREN and nextNextTokenType() == TokenType.WILDCARD:
+                    expect(TokenType.RIGHT_PAREN)
+                    expect(TokenType.WILDCARD)
+                    isCurried = True
+                    return curriedDefExpr(varName, arguments, isCurried)
+            expect(TokenType.RIGHT_PAREN)
+            return defCallExpr(varName, arguments)
+        elif nextNextTokenType() == TokenType.PLUS or nextNextTokenType() == TokenType.MINUS or nextNextTokenType() == TokenType.STAR or nextNextTokenType() == TokenType.SLASH:
+            op = nextToken()
+            consume()
+            lhs = varName
+            rhs = nextToken().lexeme
+            return binaryExpr(op, lhs, rhs)
+        else:
+            return varRefExpr(varName)
     if nextTokenType() == TokenType.STRING:
         # the value of a string literal is everything inside the double quotes, but NOT including the double quotes themselves
         literalValue = nextToken().lexeme[1:-1]
         consume()
         return literalExpr(literalValue)
+
     if nextTokenType() == TokenType.TYPE_NAME:
         varName = nextToken().lexeme
         consume()
@@ -745,7 +963,6 @@ def parsePrimary():
                 particle += letter
             else:
                 particle += letter
-
         if particle is not None and faced_val == True:
             particles.append(varRefExpr(particle))
         if particle is not None and faced_val == False:
@@ -779,6 +996,20 @@ def parsePrimary():
         expr = parseExpression()
         expect(TokenType.RIGHT_PAREN)
         return expr
+    if nextTokenType() == TokenType.NEW:
+        consume()
+        name = nextToken().lexeme
+        consume()
+        expr = className(name)
+        return expr
+    if nextTokenType() == TokenType.WILDCARD:
+        lhs = valRefExpr(nextToken().lexeme)
+        consume()
+        operator = nextToken()
+        consume()
+        rhs = literalExpr(nextToken().lexeme)
+        consume()
+        return binaryExpr(operator, lhs, rhs)
     # if we get here, there was supposed to be an expression, but we didn't find one, so that's an error
     raise SyntaxError(f"Expected start of an expression, but found {nextTokenType()} ({nextToken().lexeme}) on line {nextToken().line_num}")
 
