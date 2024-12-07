@@ -53,25 +53,25 @@ $ scala HelloWorld
 This project implements a parser for Scala code. The parser takes a list of tokens and processes them according to Scala's syntax to produce an Abstract Syntax Tree (AST). This parser is capable of handling various Scala constructs such as function definitions, variable declarations, string interpolations, pattern matching, collections, and more.
 
 ## Completed Tasks
-# 1. Main function with annotation:
+### 1. Main function with annotation:
 ```@main def helloWorld(): Unit = {
   println("Hello, World!")
 }
 ```
 • Handles @main annotation, function definition, and unit return type.
 
-# 2. String Interpolation:
+### 2. String Interpolation:
 ```println(s"Hello, $name! You are $age years old.")```
 • Parses string interpolation with variable insertion inside strings.
 
-# 3. Variable Declaration:
+### 3. Variable Declaration:
 ```
 val name: String = "Alice"
 var age: Int = 25
 ```
 • Parses val (immutable) and var (mutable) declarations with type annotations and initial values.
 
-# 4. Pattern Matching
+### 4. Pattern Matching
 ```
 def describe(x: Any): String = x match {
   case 0 => "Number is zero"
@@ -82,14 +82,14 @@ println(describe(1))
 ```
 • Parses Scala's match expressions and case statements.
 
-# 5. Collections and Mapping
+### 5. Collections and Mapping
 ```
 val numbers = List(1, 2, 3, 4)
 val doubled = numbers.map(_ * 2)
 ```
 • Handles collections (e.g., List) and functional operations like map.
 
-# 6. Imports:
+### 6. Imports:
 ```
 import java.util.Date
 val now = new Date()
@@ -97,7 +97,7 @@ println(now)
 ```
 • Parses import statements and variable declarations with instantiated classes.
 
-# 7. Traits and Inheritance:
+### 7. Traits and Inheritance:
 ```
 trait Animal {
   def sound: String 
@@ -117,7 +117,7 @@ println(dog.hasFur)
 ```
 • Parses Scala's trait and class inheritance along with method definitions
 
-# 8. Curried Function
+### 8. Curried Function
 ```
 def add(x: Int)(y: Int): Int = x + y 
 val add5 = add(5)_ 
@@ -127,7 +127,7 @@ println(add10(2))
 ```
 • Handles curried functions, partially applied functions, and function invocations.
 
-# 9. Generics and Lists
+### 9. Generics and Lists
 ```
 def printList[T](list: List[T]): Unit = {
   list.foreach(println)
