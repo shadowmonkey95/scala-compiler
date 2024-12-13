@@ -1,5 +1,6 @@
 from enum import Enum
 from dataclasses import dataclass
+from traceback import print_stack
 
 from IPython.core.magic_arguments import argument
 
@@ -12,11 +13,10 @@ object ScalaExample {
     println(s"Hello, $name! You are $age years old.")
     }
 }
-
 """
 
-PRINT_AST=False
-PRINT_ENV=False
+PRINT_AST=False # print the ASTs after parsing?
+PRINT_ENV=False # print the environment stack during runtime?
 
 TokenType = Enum('TokenType',
                  [   # Tokens that are unambiguous single characters - WILDCARD means underscore.
@@ -491,7 +491,6 @@ class annotationExpr:
 
 currentToken = 0
 
-
 # some convenience functions for looking at and/or consuming the next token
 def nextToken():
     "The next token to be parsed, or None if there are no tokens left"
@@ -697,7 +696,6 @@ def parseObjectStmt():
     body = parseBlock()
     return objectStmt(objName, body)
 
-
 def parseExpressionStmt():
     expr = parseExpression()
     return expr
@@ -868,7 +866,6 @@ def parseDefDeclStmt():
 
     return defDeclStmt(defName, generic_type, arguments, returnType, body)
 
-
 def parseBlock():
     #grammar
     # LEFT_BRACE statement* RIGHT_BRACE
@@ -955,7 +952,6 @@ def parsePrimary():
                 faced_val = True
                 particles.append(literalExpr(particle))
                 particle = ""
-                particle += letter
             elif faced_val == True and not letter.isalpha():
                 faced_val = False
                 particles.append(varRefExpr(particle))
@@ -1020,3 +1016,282 @@ for ast in program:
     print()
     print(ast)
 print()
+
+# Interpreter
+# -----
+# Input: list of ASTs
+# Output: [none, just runs the program]
+
+@dataclass
+class Environment():
+    variables: dict   # variables local to this environment
+    parent: object    # parent environment, or None if this is the global environment
+global_environment = Environment({}, None)
+environment = global_environment
+
+@dataclass
+class Callable:
+    arguments: list
+    body: object
+
+def runStmt(statement):
+    # dispatch to the appropriate run function
+    if isinstance(statement, objectStmt):
+        runObjectStmt(statement)
+    elif isinstance(statement, defDeclStmt):
+        runDefDeclStmt(statement)
+    elif isinstance(statement, valDeclStmt):
+        runValDeclStmt(statement)
+    elif isinstance(statement, varDeclStmt):
+        runVarDeclStmt(statement)
+    elif isinstance(statement, printStmt):
+        runPrintStmt(statement)
+    elif isinstance(statement, printlnStmt):
+        runPrintlnStmt(statement)
+    elif isinstance(statement, block):
+        runBlock(statement)
+    elif isinstance(statement, assignStmt):
+        runAssignStmt(statement)
+    else:
+        raise RuntimeError(f"Unimplemented statement type {statement.__class__}")
+
+def runAssignStmt(statement):
+    cur_environment = environment
+    varName = statement.name.lexeme
+    while varName not in cur_environment.variables:
+        if cur_environment.parent is not None:
+            cur_environment = cur_environment.parent
+        else:
+            raise RuntimeError(f"Attempt to assign to undeclared variable {varName} on line {statement.name.line_num}")
+    value = evalExpr(statement.value)
+    cur_environment.variables[varName] = value
+
+def evalStringInterExpr(statement):
+    interpolation_name = statement.interpolator
+    parts = statement.parts
+    print_statement = ""
+    for part in parts:
+        print_part = evalExpr(part)
+        print_statement = print_statement + str(print_part)
+    return print_statement
+
+def runBlock(statement):
+    # semantics of running a block:
+    #   create a new environment, child of existing 'environment'
+    #   run the statements in that environment
+    #   destroy environment, restoring previous environment
+    global environment
+    environment = Environment({}, environment)
+    if PRINT_ENV:
+        cur_environment = environment
+        print(f"STACK (entering block): ")
+        while cur_environment is not None:
+            print(f"   {cur_environment.variables}")
+            cur_environment = cur_environment.parent
+    for s in statement.statements:
+        runStmt(s)
+        # debug code start
+    cur_environment = environment
+    if PRINT_ENV:
+        print(f"STACK (exit block): ")
+        while cur_environment is not None:
+            print(f"   {cur_environment.variables}")
+            cur_environment = cur_environment.parent
+
+    environment = environment.parent
+
+def runPrintStmt(statement):
+    expr = evalExpr(statement.expr)
+    print(expr)
+
+def runPrintlnStmt(statement):
+    expr = evalExpr(statement.expr)
+    print(expr, "\n")
+
+def runVarDeclStmt(statement):
+    # grammar
+    # varDecl : var name : type_name equal value
+    varName = statement.name.lexeme
+    if varName in environment.variables:
+        # design decision: redeclaring a variable in the same scope is an error
+        raise RuntimeError(f"Attempt to redeclare existing variable {varName} on line {statement.name.line_num}")
+    if statement.initVal is not None:
+        initVal = evalExpr(statement.initVal)
+        environment.variables[varName] = initVal
+    else:
+        # design decision: variables with no initial value get a placeholder None value,
+        # and it's an error to reference them without first assigning a value
+        environment.variables[varName] = None
+
+def runValDeclStmt(statement):
+    # grammar
+    # valDecl : val name : type_name equal value
+    valName = statement.name.lexeme
+    if valName in environment.variables:
+        # design decision: redeclaring a variable in the same scope is an error
+        raise RuntimeError(f"Attempt to redeclare existing variable {valName} on line {statement.name.line_num}")
+    if statement.initVal is not None:
+        initVal = evalExpr(statement.initVal)
+        environment.variables[valName] = initVal
+    else:
+        # design decision: variables with no initial value get a placeholder None value,
+        # and it's an error to reference them without first assigning a value
+        environment.variables[valName] = None
+
+def runDefDeclStmt(statement):
+    # grammar
+    # defDecl: DEF IDENTIFIER (LEFT_BRACKET TYPE_NAME RIGHT_BRACKET)-optional
+    defName = statement.name.lexeme
+    if defName in environment.variables:
+        raise RuntimeError(f"Attempt to define function with existing name {defName}")
+    environment.variables[defName] = Callable(statement.arguments, statement.body)
+    if defName == "main":
+        runStmt(statement.body)
+
+def evalExpr(expr):
+    if isinstance(expr, literalExpr):
+        return evalLiteralExpr(expr)
+    if isinstance(expr, unaryExpr):
+        return evalUnaryExpr(expr)
+    if isinstance(expr, binaryExpr):
+        return evalBinaryExpr(expr)
+    if isinstance(expr, varRefExpr):
+        return evalVarRefExpr(expr)
+    if isinstance(expr, defCallExpr):
+        return evalDefCallExpr(expr)
+    if isinstance(expr, stringInterpolationExpr):
+        return evalStringInterExpr(expr)
+    else:
+        raise RuntimeError(f"Unimplemented expression type {expr.__class__}")
+
+def evalVarRefExpr(expr):
+    # two types of errors in variable references: undeclared and uninitialized
+    # (study question: what's the difference?)
+    cur_environment = environment
+    while expr.name not in cur_environment.variables:
+        if cur_environment.parent is not None:
+            cur_environment = cur_environment.parent
+        else:
+            raise RuntimeError(f"Attempt to reference undeclared variable {expr.name}")
+    if cur_environment.variables[expr.name] is None:
+        raise RuntimeError(f"Attempt to reference uninitialized variable {expr.name}")
+    return cur_environment.variables[expr.name]
+
+def runBlock(statement):
+    # semantics of running a block:
+    #   create a new environment, child of existing 'environment'
+    #   run the statements in that environment
+    #   destroy environment, restoring previous environment
+    global environment
+    environment = Environment({}, environment)
+    if PRINT_ENV:
+        cur_environment = environment
+        print(f"STACK (entering block): ")
+        while cur_environment is not None:
+            print(f"   {cur_environment.variables}")
+            cur_environment = cur_environment.parent
+    for s in statement.statements:
+        runStmt(s)
+        # debug code start
+    cur_environment = environment
+    if PRINT_ENV:
+        print(f"STACK (exit block): ")
+        while cur_environment is not None:
+            print(f"   {cur_environment.variables}")
+            cur_environment = cur_environment.parent
+
+def evalDefCallExpr(expr):
+    # first evaluate both the function expression and argument expressions to values
+    callable = evalExpr(expr.function)
+    if not isinstance(callable, Callable):
+        raise RuntimeError(f"Tried to call non-callable '{callable}'")
+    arguments = [evalExpr(arg) for arg in expr.arguments]
+    # set up a new environment to run the function in
+    # with the function parameters bound to the passed values
+    global environment
+    old_environment = environment
+    environment = Environment({}, global_environment)  # Note: lexical scope!
+    for param, val in zip(callable.arguments, arguments):
+        environment.variables[param] = val
+    # run the body of the function, and catch any return
+    returnVal = None
+    try:
+        runBlock(callable.body)
+    except ReturnException as r:
+        returnVal = r.args[0]
+    environment = old_environment # restore previous environment
+    return returnVal
+
+class ReturnException(Exception):
+    pass
+
+def runReturnStmt(statement):
+    returnVal = evalExpr(statement.expr)
+    raise ReturnException(returnVal)
+
+def evalLiteralExpr(expr):
+    return expr.value
+
+def evalUnaryExpr(expr):
+    rhsVal = evalExpr(expr.rhs)
+    if expr.operator.tokenType == TokenType.MINUS:
+        if not isinstance(rhsVal, float):
+            raise RuntimeError(f"Applied unary '-' to a non-number on line {expr.operator.line_num}")
+        return -rhsVal
+    if expr.operator.tokenType == TokenType.BANG:
+        if not isinstance(rhsVal, bool):
+            raise RuntimeError(f"Applied unary '!' to a non-boolean on line {expr.operator.line_num}")
+        return not rhsVal
+    raise RuntimeError(f"Unrecognized unary operator: {expr.operator.tokenType} on line {expr.operator.line_num}")
+
+def evalBinaryExpr(expr):
+    lhsVal = evalExpr(expr.lhs)
+    rhsVal = evalExpr(expr.rhs)
+    # TODO: should check types before applying operator, like in evalUnaryExpr() above
+    # arithmetic operators
+    if expr.operator.tokenType == TokenType.PLUS:
+        return lhsVal + rhsVal
+    if expr.operator.tokenType == TokenType.MINUS:
+        return lhsVal - rhsVal
+    if expr.operator.tokenType == TokenType.STAR:
+        return lhsVal * rhsVal
+    if expr.operator.tokenType == TokenType.SLASH:
+        return lhsVal / rhsVal
+    # comparison operators
+    if expr.operator.tokenType == TokenType.EQUAL_EQUAL:
+        return lhsVal == rhsVal
+    if expr.operator.tokenType == TokenType.BANG_EQUAL:
+        return lhsVal != rhsVal
+    if expr.operator.tokenType == TokenType.GREATER:
+        return lhsVal > rhsVal
+    if expr.operator.tokenType == TokenType.GREATER_EQUAL:
+        return lhsVal >= rhsVal
+    if expr.operator.tokenType == TokenType.LESS:
+        return lhsVal < rhsVal
+    if expr.operator.tokenType == TokenType.LESS_EQUAL:
+        return lhsVal <= rhsVal
+    raise RuntimeError(f"Unrecognized binary operator: {expr.op.tokenType} on line {expr.op.line_num}")
+
+def runObjectStmt(statement):
+    name_object = statement.name
+
+    if name_object is None:
+        raise RuntimeError(f"No object named {statement.name}")
+    else:
+        runStmt(statement.body)
+
+# actually run the program!
+for ast in program:
+    if PRINT_ENV:
+        print(f"STACK: ")
+        cur_environment = environment
+        while cur_environment is not None:
+            print(f"   {cur_environment.variables}")
+            cur_environment = cur_environment.parent
+    runStmt(ast)
+if PRINT_ENV:
+    print(f"STACK: ")
+    cur_environment = environment
+    while cur_environment is not None:
+        print(f"   {cur_environment.variables}")
+        cur_environment = cur_environment.parent
