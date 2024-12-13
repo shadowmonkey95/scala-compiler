@@ -54,14 +54,17 @@ This code(scala_compiler.py) implements a parser for Scala code. The parser take
 
 ## Completed Tasks
 ### 1. Main function with annotation:
-```@main def helloWorld(): Unit = {
+```
+@main def helloWorld(): Unit = {
   println("Hello, World!")
 }
 ```
 • Handles @main annotation, function definition, and unit return type.
 
 ### 2. String Interpolation:
-```println(s"Hello, $name! You are $age years old.")```
+```
+println(s"Hello, $name! You are $age years old.")
+```
 • Parses string interpolation with variable insertion inside strings.
 
 ### 3. Variable Declaration:
@@ -139,3 +142,36 @@ val stringList = List("Scala", "Java", "Python")
 println(printList(stringList))
 ```
 • Handles generic functions and the printing of lists.
+
+---
+# Scala Code Interpreter
+
+The Scala Code interpreter provides an interactive environment to execute and test Scala code without requiring prior compilation.
+
+
+## Completed Tasks
+### 1. The main function of an object
+```
+object ScalaExample {
+   def main(args: Array[String]) : Unit = {
+       print("Hello World")
+   }
+}
+```
+
+The interpreter identifies the main function and then executes the print statement. 
+
+### 2. String Interpolation:
+```
+println(s"Hello, $name! You are $age years old.")
+```
+
+The interpreter identifies the variables in the print statement and then properly inserts their values into the statement.
+
+### 3. Variable Declaration and Variable Assignment
+```
+val name: String = "Alice"
+var age: Int = 25
+```
+
+The interpreter inputs variables in the environment variable, reflecting the characteristics of val (immutable) and var (mutable).
